@@ -4,13 +4,24 @@
 #include <dirent.h>
 #include <ctype.h>
 
+/*
+    Simple Linux process monitor.
+    Reads /proc directory and shows top processes by memory usage (VmRSS).
+    Built for practicing:
+    - directory handling (opendir/readdir)
+    - file parsing
+    - dynamic memory allocation
+    - basic sorting with qsort
+*/
+
 typedef struct {
     int pid;
     char name[128];
     long memory_kb;
 } ProcessInfo;
 
-/* Check if directory name is numeric (PID folders in /proc) */
+
+/* Check if folder name inside /proc is numeric (PIDs are numeric) */
 int is_number(const char *str) {
     for (int i = 0; str[i]; i++) {
         if (!isdigit(str[i]))
@@ -19,14 +30,15 @@ int is_number(const char *str) {
     return 1;
 }
 
-/* Read memory usage (VmRSS) from /proc/<pid>/status */
+
+/* Read VmRSS value from /proc/<pid>/status */
 long read_memory(int pid) {
     char path[256];
     snprintf(path, sizeof(path), "/proc/%d/status", pid);
 
     FILE *file = fopen(path, "r");
     if (!file)
-        return -1;
+        return -1;  // process might have ended or permission denied
 
     char line[256];
     long memory = -1;
@@ -42,6 +54,7 @@ long read_memory(int pid) {
     return memory;
 }
 
+
 /* Read process name from /proc/<pid>/comm */
 void read_name(int pid, char *buffer, size_t size) {
     char path[256];
@@ -54,16 +67,19 @@ void read_name(int pid, char *buffer, size_t size) {
     }
 
     fgets(buffer, size, file);
-    buffer[strcspn(buffer, "\n")] = '\0'; // remove newline
+    buffer[strcspn(buffer, "\n")] = '\0';  // remove newline
     fclose(file);
 }
 
+
+/* Sort processes by memory usage (descending order) */
 int compare_memory(const void *a, const void *b) {
     ProcessInfo *p1 = (ProcessInfo *)a;
     ProcessInfo *p2 = (ProcessInfo *)b;
 
-    return p2->memory_kb - p1->memory_kb;
+    return (int)(p2->memory_kb - p1->memory_kb);
 }
+
 
 int main() {
     DIR *dir = opendir("/proc");
@@ -72,13 +88,13 @@ int main() {
         return 1;
     }
 
-    ProcessInfo *list = NULL;
-    int count = 0;
+    // Start with initial capacity for 100 processes
     int capacity = 100;
+    int count = 0;
 
-    list = malloc(sizeof(ProcessInfo) * capacity);
+    ProcessInfo *list = malloc(sizeof(ProcessInfo) * capacity);
     if (!list) {
-        printf("Memory allocation failed\n");
+        printf("Initial memory allocation failed\n");
         closedir(dir);
         return 1;
     }
@@ -96,14 +112,19 @@ int main() {
         if (mem <= 0)
             continue;
 
+        // If capacity exceeded, resize (dynamic array behavior)
         if (count >= capacity) {
             capacity *= 2;
-            list = realloc(list, sizeof(ProcessInfo) * capacity);
-            if (!list) {
+
+            ProcessInfo *temp = realloc(list, sizeof(ProcessInfo) * capacity);
+            if (!temp) {
                 printf("Reallocation failed\n");
+                free(list);
                 closedir(dir);
                 return 1;
             }
+
+            list = temp;
         }
 
         list[count].pid = pid;
@@ -114,9 +135,10 @@ int main() {
 
     closedir(dir);
 
+    // Sort processes by memory usage
     qsort(list, count, sizeof(ProcessInfo), compare_memory);
 
-    printf("Top 10 processes by memory usage:\n");
+    printf("\nTop 10 processes by memory usage:\n");
     printf("-----------------------------------\n");
 
     for (int i = 0; i < 10 && i < count; i++) {
@@ -125,6 +147,13 @@ int main() {
                list[i].name,
                list[i].memory_kb);
     }
+
+    /*
+        TODO:
+        - Add CPU usage calculation
+        - Add command line argument for top N
+        - Improve error handling for edge cases
+    */
 
     free(list);
     return 0;
